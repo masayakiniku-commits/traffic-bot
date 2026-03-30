@@ -1,75 +1,56 @@
 import requests
 import os
+from bs4 import BeautifulSoup
 
-BEARER_TOKEN = os.getenv("TWITTER_BEARER_TOKEN")
 WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 
-# 検知ワード（増やしてヒット率UP）
 KEYWORDS = [
     "ネズミ捕り", "移動オービス", "オービス", "覆面", "白バイ",
     "パトカー", "取り締まり", "警察いた"
 ]
 
-# 愛知（市あり・なし両対応）
 CITIES = [
-    "名古屋", "名古屋市",
-    "豊田", "豊田市",
-    "岡崎", "岡崎市",
-    "一宮", "一宮市",
-    "豊橋", "豊橋市",
-    "春日井", "春日井市",
-    "刈谷", "刈谷市",
-    "安城", "安城市",
-    "西尾", "西尾市",
-    "小牧", "小牧市",
-    "稲沢", "稲沢市",
-    "瀬戸", "瀬戸市",
-    "半田", "半田市",
-    "東海", "東海市"
+    "名古屋","豊田","岡崎","一宮","豊橋","春日井","刈谷","安城",
+    "西尾","小牧","稲沢","瀬戸","半田","東海"
 ]
 
-def create_headers():
-    return {"Authorization": f"Bearer {BEARER_TOKEN}"}
+def send_discord(msg):
+    requests.post(WEBHOOK_URL, json={"content": msg})
 
-def search_tweets():
-    # クエリ強化（愛知系も含める）
-    query = "(" + " OR ".join(KEYWORDS) + ") (愛知 OR 名古屋 OR 岡崎 OR 一宮) lang:ja -is:retweet"
+# ■ Yahooリアルタイム検索
+def fetch_yahoo():
+    url = "https://search.yahoo.co.jp/realtime/search?p=オービス+白バイ+ネズミ捕り+愛知"
+    res = requests.get(url)
+    soup = BeautifulSoup(res.text, "html.parser")
 
-    url = "https://api.twitter.com/2/tweets/search/recent"
+    results = []
 
-    params = {
-        "query": query,
-        "max_results": 10
-    }
+    for item in soup.select("div.sw-CardBase"):
+        text = item.get_text()
+        results.append(text)
 
-    res = requests.get(url, headers=create_headers(), params=params)
+    return results
 
-    if res.status_code != 200:
-        print("取得失敗:", res.text)
-        return []
+# ■ ニュース検索
+def fetch_news():
+    url = "https://news.yahoo.co.jp/search?p=交通取り締まり"
+    res = requests.get(url)
+    soup = BeautifulSoup(res.text, "html.parser")
 
-    return res.json().get("data", [])
+    results = []
 
-def send_discord(message):
-    requests.post(WEBHOOK_URL, json={"content": message})
+    for item in soup.select("a.newsFeed_item_link"):
+        text = item.get_text()
+        results.append(text)
 
-def main():
-    tweets = search_tweets()
+    return results
 
-    # ★ デバッグ（超重要）
-    print("取得ツイート数:", len(tweets))
-    for t in tweets:
-        print(t["text"])
-        print("------")
+def check_and_notify(texts):
+    for text in texts:
 
-    for tweet in tweets:
-        text = tweet["text"]
-
-        # キーワードチェック
         if not any(k in text for k in KEYWORDS):
             continue
 
-        # 地名チェック（あれば愛知扱い）
         area_hit = any(city in text for city in CITIES)
 
         if area_hit:
@@ -77,8 +58,21 @@ def main():
         else:
             msg = f"🚨交通情報\n{text}"
 
-        print("送信:", msg)
+        print(msg)
         send_discord(msg)
+
+def main():
+    yahoo_data = fetch_yahoo()
+    news_data = fetch_news()
+
+    all_data = yahoo_data + news_data
+
+    print("取得件数:", len(all_data))
+
+    for t in all_data:
+        print(t[:50])
+
+    check_and_notify(all_data)
 
 if __name__ == "__main__":
     main()
