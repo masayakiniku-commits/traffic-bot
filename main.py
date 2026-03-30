@@ -1,33 +1,26 @@
 import requests
 from bs4 import BeautifulSoup
 import os
+import time
 
 # ==============================
-# ■ 通知先（Discord webhook）
+# ■ 設定
 # ==============================
 WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 
-# ==============================
-# ■ 検知キーワード（強化版）
-# ==============================
 KEYWORDS = [
     "オービス","移動オービス",
     "覆面","覆面パト","覆面パトカー",
     "白バイ","取締","ネズミ捕り","検問"
 ]
 
-# ==============================
-# ■ エリア（愛知フル＋名古屋16区）
-# ==============================
 AREAS = [
-# 名古屋
 "名古屋","名古屋市",
 "千種","千種区","東","東区","北","北区","西","西区",
 "中村","中村区","中","中区","昭和","昭和区","瑞穂","瑞穂区",
 "熱田","熱田区","中川","中川区","港","港区","南","南区",
 "守山","守山区","緑","緑区","名東","名東区","天白","天白区",
 
-# 市
 "豊橋","豊橋市","岡崎","岡崎市","一宮","一宮市","瀬戸","瀬戸市",
 "半田","半田市","春日井","春日井市","豊川","豊川市","津島","津島市",
 "碧南","碧南市","刈谷","刈谷市","豊田","豊田市","安城","安城市",
@@ -39,7 +32,6 @@ AREAS = [
 "北名古屋","北名古屋市","弥富","弥富市","みよし","みよし市",
 "あま","あま市","長久手","長久手市",
 
-# 町村
 "東郷","東郷町","豊山","豊山町","大口","大口町","扶桑","扶桑町",
 "大治","大治町","蟹江","蟹江町","阿久比","阿久比町","東浦","東浦町",
 "南知多","南知多町","美浜","美浜町","武豊","武豊町","幸田","幸田町",
@@ -48,55 +40,74 @@ AREAS = [
 ]
 
 # ==============================
-# ■ Yahooリアルタイム検索
+# ■ Yahoo取得（タイムアウト付き）
 # ==============================
 def get_yahoo():
+    print("Yahoo取得開始")
     url = "https://search.yahoo.co.jp/realtime/search?p=オービス+愛知"
     headers = {"User-Agent": "Mozilla/5.0"}
-    r = requests.get(url, headers=headers)
+
+    try:
+        r = requests.get(url, headers=headers, timeout=10)
+        r.raise_for_status()
+    except Exception as e:
+        print("Yahoo取得エラー:", e)
+        return []
+
     soup = BeautifulSoup(r.text, "html.parser")
 
     results = []
     for item in soup.select("article"):
-        text = item.get_text()
-        results.append(text)
+        text = item.get_text(strip=True)
+        if text:
+            results.append(text)
 
+    print("Yahoo取得完了:", len(results))
     return results
 
 # ==============================
 # ■ フィルタ
 # ==============================
 def filter_posts(posts):
-    hit_posts = []
+    print("フィルタ開始")
+
+    hits = []
+    seen = set()  # 重複排除
 
     for text in posts:
-        if any(k in text for k in KEYWORDS) and any(a in text for a in AREAS):
-            hit_posts.append(text)
+        if text in seen:
+            continue
+        seen.add(text)
 
-    return hit_posts
+        if any(k in text for k in KEYWORDS) and any(a in text for a in AREAS):
+            hits.append(text)
+
+    print("フィルタ完了:", len(hits))
+    return hits
 
 # ==============================
-# ■ Discord送信
+# ■ Discord通知（タイムアウト付き）
 # ==============================
 def send_discord(msg):
     if not WEBHOOK_URL:
         print("Webhook未設定")
         return
 
-    data = {"content": msg}
-    requests.post(WEBHOOK_URL, json=data)
+    try:
+        requests.post(WEBHOOK_URL, json={"content": msg}, timeout=5)
+    except Exception as e:
+        print("送信エラー:", e)
 
 # ==============================
-# ■ メイン処理
+# ■ メイン
 # ==============================
 def main():
+    print("===== 処理開始 =====")
+
     posts = []
 
-    # Yahoo取得
-    try:
-        posts += get_yahoo()
-    except Exception as e:
-        print("Yahoo取得失敗:", e)
+    # Yahoo
+    posts += get_yahoo()
 
     print("取得件数:", len(posts))
 
@@ -104,8 +115,12 @@ def main():
 
     print("検知件数:", len(hits))
 
+    # 通知（最大5件）
     for h in hits[:5]:
         send_discord("🚨検知\n" + h[:200])
+        time.sleep(1)  # 連投制限対策
+
+    print("===== 処理終了 =====")
 
 if __name__ == "__main__":
     main()
