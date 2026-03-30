@@ -1,78 +1,49 @@
-import requests
-import os
-from bs4 import BeautifulSoup
-
-WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
-
-KEYWORDS = [
-    "ネズミ捕り", "移動オービス", "オービス", "覆面", "白バイ",
-    "パトカー", "取り締まり", "警察いた"
-]
-
-CITIES = [
-    "名古屋","豊田","岡崎","一宮","豊橋","春日井","刈谷","安城",
-    "西尾","小牧","稲沢","瀬戸","半田","東海"
-]
-
-def send_discord(msg):
-    requests.post(WEBHOOK_URL, json={"content": msg})
-
-# ■ Yahooリアルタイム検索
 def fetch_yahoo():
-    url = "https://search.yahoo.co.jp/realtime/search?p=オービス+白バイ+ネズミ捕り+愛知"
-    res = requests.get(url)
-    soup = BeautifulSoup(res.text, "html.parser")
+    # ■ 取締ワード
+    keywords = [
+        "ネズミ捕り", "移動オービス", "オービス", "覆面", "白バイ"
+    ]
+
+    # ■ 愛知県 市町村＋名古屋16区
+    areas = [
+        # 名古屋市16区
+        "千種区","東区","北区","西区","中村区","中区","昭和区","瑞穂区",
+        "熱田区","中川区","港区","南区","守山区","緑区","名東区","天白区",
+
+        # 市
+        "豊橋市","岡崎市","一宮市","瀬戸市","半田市","春日井市","豊川市",
+        "津島市","碧南市","刈谷市","豊田市","安城市","西尾市","蒲郡市",
+        "犬山市","常滑市","江南市","小牧市","稲沢市","新城市","東海市",
+        "大府市","知多市","知立市","尾張旭市","高浜市","岩倉市","豊明市",
+        "日進市","田原市","愛西市","清須市","北名古屋市","弥富市",
+        "みよし市","あま市","長久手市",
+
+        # 町村
+        "東郷町","豊山町","大口町","扶桑町","大治町","蟹江町",
+        "阿久比町","東浦町","南知多町","美浜町","武豊町",
+        "幸田町","設楽町","東栄町","飛島村","豊根村"
+    ]
 
     results = []
 
-    for item in soup.select("div.sw-CardBase"):
-        text = item.get_text()
-        results.append(text)
+    # ■ 全組み合わせ検索
+    for area in areas:
+        for keyword in keywords:
+
+            query = f"{area} {keyword}"
+            url = f"https://search.yahoo.co.jp/realtime/search?p={query}"
+
+            try:
+                res = requests.get(url, timeout=5)
+                soup = BeautifulSoup(res.text, "html.parser")
+
+                for item in soup.select("article"):
+                    text = item.get_text(strip=True)
+
+                    if text and text not in results:
+                        results.append(text)
+
+            except:
+                continue
 
     return results
-
-# ■ ニュース検索
-def fetch_news():
-    url = "https://news.yahoo.co.jp/search?p=交通取り締まり"
-    res = requests.get(url)
-    soup = BeautifulSoup(res.text, "html.parser")
-
-    results = []
-
-    for item in soup.select("a.newsFeed_item_link"):
-        text = item.get_text()
-        results.append(text)
-
-    return results
-
-def check_and_notify(texts):
-    for text in texts:
-
-        if not any(k in text for k in KEYWORDS):
-            continue
-
-        area_hit = any(city in text for city in CITIES)
-
-        if area_hit:
-            msg = f"🚨【愛知】交通取締\n{text}"
-        else:
-            msg = f"🚨交通情報\n{text}"
-
-        print(msg)
-        send_discord(msg)
-
-def main():
-    yahoo_data = fetch_yahoo()
-    news_data = fetch_news()
-
-    all_data = yahoo_data + news_data
-
-    print("取得件数:", len(all_data))
-
-    for t in all_data:
-        print(t[:50])
-
-    check_and_notify(all_data)
-
-if __name__ == "__main__":
-    main()
