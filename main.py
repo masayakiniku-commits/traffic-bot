@@ -1,16 +1,16 @@
 import requests
 import os
-import time
 
 BEARER_TOKEN = os.getenv("TWITTER_BEARER_TOKEN")
 WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 
-# 検知ワード
+# 検知ワード（増やしてヒット率UP）
 KEYWORDS = [
-    "ネズミ捕り", "移動オービス", "オービス", "覆面", "白バイ"
+    "ネズミ捕り", "移動オービス", "オービス", "覆面", "白バイ",
+    "パトカー", "取り締まり", "警察いた"
 ]
 
-# 愛知県市町村（主要だけ抜粋＋両対応）
+# 愛知（市あり・なし両対応）
 CITIES = [
     "名古屋", "名古屋市",
     "豊田", "豊田市",
@@ -32,22 +32,23 @@ def create_headers():
     return {"Authorization": f"Bearer {BEARER_TOKEN}"}
 
 def search_tweets():
-    query = " OR ".join(KEYWORDS)
+    # クエリ強化（愛知系も含める）
+    query = "(" + " OR ".join(KEYWORDS) + ") (愛知 OR 名古屋 OR 岡崎 OR 一宮) lang:ja -is:retweet"
 
     url = "https://api.twitter.com/2/tweets/search/recent"
 
     params = {
-        "query": query + " -is:retweet lang:ja",
+        "query": query,
         "max_results": 10
     }
 
-    response = requests.get(url, headers=create_headers(), params=params)
+    res = requests.get(url, headers=create_headers(), params=params)
 
-    if response.status_code != 200:
-        print("取得失敗:", response.text)
+    if res.status_code != 200:
+        print("取得失敗:", res.text)
         return []
 
-    return response.json().get("data", [])
+    return res.json().get("data", [])
 
 def send_discord(message):
     requests.post(WEBHOOK_URL, json={"content": message})
@@ -55,23 +56,28 @@ def send_discord(message):
 def main():
     tweets = search_tweets()
 
+    # ★ デバッグ（超重要）
+    print("取得ツイート数:", len(tweets))
+    for t in tweets:
+        print(t["text"])
+        print("------")
+
     for tweet in tweets:
         text = tweet["text"]
 
-        # キーワード判定
+        # キーワードチェック
         if not any(k in text for k in KEYWORDS):
             continue
 
-        # 地名判定（ゆるめ）
+        # 地名チェック（あれば愛知扱い）
         area_hit = any(city in text for city in CITIES)
-
-        # 条件：キーワードあればOK（地名は参考）
-        msg = f"🚨交通取締情報\n{text}"
 
         if area_hit:
             msg = f"🚨【愛知】交通取締\n{text}"
+        else:
+            msg = f"🚨交通情報\n{text}"
 
-        print(msg)
+        print("送信:", msg)
         send_discord(msg)
 
 if __name__ == "__main__":
